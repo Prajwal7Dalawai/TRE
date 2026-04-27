@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Run Reconciliation</title>
+    <style>
+        body { font-family: Arial; background: #f4f6f8; }
+
+        .container {
+            width: 500px;
+            margin: 50px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 12px rgba(0,0,0,0.08);
+        }
+
+        h2 { text-align: center; }
+
+        label {
+            font-weight: bold;
+            display: block;
+            margin-top: 15px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+        }
+
+        .option-box {
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        button {
+            margin-top: 20px;
+            width: 100%;
+            padding: 12px;
+            background: #007BFF;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background: gray;
+        }
+
+        /* 🔥 Flash Messages */
+        .alert {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .alert.success { background: #d4edda; color: #155724; }
+        .alert.error { background: #f8d7da; color: #721c24; }
+        .alert.warning { background: #fff3cd; color: #856404; }
+
+        /* 🔥 Loader */
+        .loader {
+            display: none;
+            text-align: center;
+            margin-top: 15px;
+            font-weight: bold;
+            color: #007BFF;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Run Reconciliation</h2>
+
+    <!-- 🔥 Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="/reconcile" enctype="multipart/form-data" onsubmit="startProcess()">
+
+        <!-- Input type -->
+        <label>Select Input Source</label>
+        <select name="input_type" id="input_type" required onchange="toggleInput()">
+            <option value="">-- Select --</option>
+            <option value="csv">Upload CSV File</option>
+            <option value="db">Use Database Logs</option>
+        </select>
+
+        <!-- CSV -->
+        <div id="csv_box" class="option-box" style="display:none;">
+            <label>Upload CSV</label>
+            <input type="file" name="csv_file" accept=".csv">
+        </div>
+
+        <!-- DB -->
+        <div id="db_box" class="option-box" style="display:none;">
+            <p>Will use latest gateway logs from database</p>
+        </div>
+
+        <button id="submitBtn" type="submit">Run Reconciliation</button>
+
+    </form>
+
+    <!-- 🔥 Processing message -->
+    <div id="loader" class="loader">
+        ⏳ Processing... Please wait
+    </div>
+
+</div>
+
+<script>
+function toggleInput() {
+    const type = document.getElementById("input_type").value;
+
+    document.getElementById("csv_box").style.display =
+        type === "csv" ? "block" : "none";
+
+    document.getElementById("db_box").style.display =
+        type === "db" ? "block" : "none";
+}
+
+// 🔥 Show loader when form submits
+function startProcess() {
+    document.getElementById("loader").style.display = "block";
+    document.getElementById("submitBtn").disabled = true;
+}
+</script>
+
+</body>
+</html>
