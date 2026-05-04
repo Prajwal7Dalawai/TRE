@@ -3,7 +3,7 @@ from io import StringIO
 import uuid
 import os
 import subprocess
-
+from datetime import datetime
 from flask import Flask, request, redirect, render_template, flash, Response, jsonify
 from config.db_config import get_connection
 
@@ -209,27 +209,41 @@ def reconcile():
         input_type = request.form.get('input_type')
 
         try:
-            # 🔥 DB MODE
+            # 🔥 Step 1: Create job
+            conn = get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO reconciliation_jobs (status)
+                VALUES ('RUNNING')
+            """)
+
+            job_id = cursor.lastrowid
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            # 🔥 Step 2: DB MODE
             if input_type == "db":
 
                 subprocess.Popen([
                     "python",
                     "-m",
                     "services.spark_reconciliation",
-                    "DB"
+                    "DB",
+                    "", "",   # no CSV paths
+                    str(job_id)
                 ])
 
-                flash("Reconciliation started using DATABASE", "success")
-
-            # 🔥 CSV MODE
+            # 🔥 Step 3: CSV MODE
             elif input_type == "csv":
 
                 gateway_file = request.files.get("gateway_file")
                 txn_file = request.files.get("txn_file")
 
                 if not gateway_file or not txn_file:
-                    flash("Upload both CSV files", "error")
-                    return redirect('/reconcile')
+                    return jsonify({"error": "Upload both CSV files"}), 400
 
                 gateway_path = os.path.join(UPLOAD_FOLDER, gateway_file.filename)
                 txn_path = os.path.join(UPLOAD_FOLDER, txn_file.filename)
@@ -239,44 +253,92 @@ def reconcile():
 
                 subprocess.Popen([
                     "python",
-                    "services/spark_reconciliation.py",
+                    "-m",
+                    "services.spark_reconciliation",
                     "CSV",
                     gateway_path,
-                    txn_path
+                    txn_path,
+                    str(job_id)
                 ])
 
-                flash("Reconciliation started using CSV", "success")
-
             else:
-                flash("Invalid input type", "error")
+                return jsonify({"error": "Invalid input type"}), 400
+
+            # 🔥 Step 4: RETURN JSON (IMPORTANT)
+            return jsonify({"job_id": job_id})
 
         except Exception as e:
-            flash(str(e), "error")
-
-        return redirect('/reconcile')
+            return jsonify({"error": str(e)}), 500
 
     return render_template("reconcile.html")
 
-@app.route('/results')
-def results():
+
+@app.route('/job_status/<int:job_id>')
+def job_status(job_id):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    try:
-        # 🔥 Get latest reconciliation records
-        cursor.execute("""
-            SELECT *
-            FROM reconciliation
-            ORDER BY recon_id DESC
-            LIMIT 100
-        """)
-        data = cursor.fetchall()
+    cursor.execute("SELECT * FROM reconciliation_jobs WHERE job_id=%s", (job_id,))
+    job = cursor.fetchone()
 
-        return render_template("results.html", data=data)
+    return job
 
-    finally:
-        cursor.close()
-        conn.close()
+
+@app.route('/results')
+def results():
+    page = int(request.args.get('page', 1))
+    per_page = 10
+    offset = (page - 1) * per_page
+
+    filter_type = request.args.get('filter', 'all')
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # 🔥 Base query
+    base_query = "SELECT * FROM reconciliation"
+
+    # 🔥 Filter logic
+    if filter_type == "recent":
+        base_query += " ORDER BY created_at DESC"
+    else:
+        base_query += " ORDER BY recon_id DESC"
+
+    # 🔥 Pagination
+    base_query += " LIMIT %s OFFSET %s"
+
+    cursor.execute(base_query, (per_page, offset))
+    data = cursor.fetchall()
+
+    # 🔥 Total count for pagination
+    cursor.execute("SELECT COUNT(*) as count FROM reconciliation")
+    total = cursor.fetchone()['count']
+
+    cursor.close()
+    conn.close()
+
+    # 🔥 Add time_ago
+    for row in data:
+        diff = datetime.now() - row['created_at']
+        diff_seconds = diff.total_seconds()
+
+        if diff_seconds < 60:
+            row['time_ago'] = f"{int(diff_seconds)}s ago"
+        elif diff_seconds < 3600:
+            row['time_ago'] = f"{int(diff_seconds//60)}m ago"
+        elif diff_seconds < 86400:
+            row['time_ago'] = f"{int(diff_seconds//3600)}h ago"
+        else:
+            row['time_ago'] = f"{diff.days}d ago"
+
+    return render_template(
+        "results.html",
+        data=data,
+        page=page,
+        total=total,
+        per_page=per_page,
+        filter_type=filter_type
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)

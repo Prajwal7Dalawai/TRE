@@ -85,7 +85,7 @@
         {% endif %}
     {% endwith %}
 
-    <form method="POST" action="/reconcile" enctype="multipart/form-data" onsubmit="startProcess()">
+    <form method="POST" action="/reconcile" enctype="multipart/form-data" onsubmit="return startProcess(event)">
 
     <!-- Input type -->
     <label>Select Input Source</label>
@@ -121,6 +121,9 @@
 </div>
 
 <script>
+let jobId = null;
+
+// 🔥 Toggle input (same)
 function toggleInput() {
     const type = document.getElementById("input_type").value;
 
@@ -133,12 +136,71 @@ function toggleInput() {
     document.getElementById("txn_file").required = isCSV;
 }
 
-// 🔥 Show loader when form submits
-function startProcess() {
+// 🔥 Submit form via fetch instead of normal POST
+async function startProcess(event) {
+    event.preventDefault();
+
     document.getElementById("loader").style.display = "block";
     document.getElementById("submitBtn").disabled = true;
+    document.getElementById("loader").innerHTML = "⏳ Starting reconciliation...";
+
+    const form = event.target;
+    const formData = new FormData(form);
+
+    try {
+        const response = await fetch("/reconcile", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+
+        jobId = data.job_id;
+
+        if (!jobId) {
+            document.getElementById("loader").innerHTML = "❌ Failed to start job";
+            return;
+        }
+
+        // 🔥 Start polling
+        checkStatus();
+
+    } catch (err) {
+        document.getElementById("loader").innerHTML = "❌ Error starting job";
+    }
+
+    return false;
+}
+
+// 🔥 Poll job status
+async function checkStatus() {
+    if (!jobId) return;
+
+    try {
+        const res = await fetch(`/job_status/${jobId}`);
+        const data = await res.json();
+
+        if (data.status === "RUNNING") {
+            document.getElementById("loader").innerHTML = "⏳ Processing...";
+            setTimeout(checkStatus, 2000);
+        }
+
+        else if (data.status === "SUCCESS") {
+            document.getElementById("loader").innerHTML =
+                `✅ Completed! <br><a href="/results?job_id=${jobId}">View Results</a>`;
+        }
+
+        else if (data.status === "FAILED") {
+            document.getElementById("loader").innerHTML =
+                `❌ Failed: ${data.message}`;
+        }
+
+    } catch (err) {
+        document.getElementById("loader").innerHTML = "❌ Error checking status";
+    }
 }
 </script>
+
 
 </body>
 </html>
