@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reconciliation Results</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial;
+            background: #f4f6f8;
+            margin: 0;
+        }
+
+        .container {
+            width: 95%;
+            max-width: 1100px;
+            margin: 40px auto;
+        }
+
+        h2 {
+            text-align: center;
+            margin-bottom: 25px;
+            color: #333;
+        }
+
+        /* 🔥 Summary Cards */
+        .summary {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            flex: 1;
+            margin: 5px;
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .match-card { background: #28a745; }
+        .mismatch-card { background: #dc3545; }
+        .missing-card { background: #ffc107; color: black; }
+
+        /* 🔥 Table */
+        .table-box {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0,0,0,0.08);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #007BFF;
+            color: white;
+            padding: 12px;
+            text-align: center;
+        }
+
+        td {
+            padding: 12px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+        }
+
+        tr:hover {
+            background: #f9f9f9;
+        }
+
+        /* 🔥 Status badges */
+        .badge {
+            padding: 5px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .match {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .mismatch {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .missing {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .rollback {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .back {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .back a {
+            text-decoration: none;
+            color: #007BFF;
+            font-weight: bold;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Reconciliation Results</h2>
+
+    <!-- 🔥 Summary -->
+    <div class="summary">
+        <div class="card match-card">
+            MATCH<br>{{ data | selectattr('internal_status','equalto','MATCH') | list | length }}
+        </div>
+
+        <div class="card mismatch-card">
+            MISMATCH<br>{{ data | selectattr('internal_status','equalto','MISMATCH') | list | length }}
+        </div>
+
+        <div class="card missing-card">
+            MISSING<br>{{ data | selectattr('internal_status','equalto','MISSING') | list | length }}
+        </div>
+    </div>
+
+    <!-- 🔥 Table -->
+    <div class="table-box">
+        <table>
+            <tr>
+                <th>Transaction ID</th>
+                <th>Gateway Status</th>
+                <th>Internal Status</th>
+                <th>Remarks</th>
+            </tr>
+
+            {% for row in data %}
+            <tr>
+                <td>{{ row.gtw_txn_id }}</td>
+
+                <td>{{ row.gateway_status }}</td>
+
+                <td>
+                    <span class="badge 
+                        {% if row.internal_status == 'MATCH' %}match
+                        {% elif row.internal_status == 'MISMATCH' %}mismatch
+                        {% elif row.internal_status == 'MISSING' %}missing
+                        {% endif %}
+                    ">
+                        {{ row.internal_status }}
+                    </span>
+                </td>
+
+                <td>
+                    <span class="badge 
+                        {% if row.remarks == 'ROLLEDBACK' %}rollback{% endif %}
+                    ">
+                        {{ row.remarks }}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="back">
+        <a href="/">← Back to Home</a>
+    </div>
+
+</div>
+
+</body>
+</html>

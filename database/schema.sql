@@ -117,3 +117,18 @@ CREATE TABLE reconciliation (
 
     INDEX (gtw_txn_id)
 );
+
+CREATE TABLE reconciliation_jobs (
+    job_id INT PRIMARY KEY AUTO_INCREMENT,
+
+    status ENUM('RUNNING', 'SUCCESS', 'FAILED') NOT NULL,
+
+    message TEXT,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL
+);
+
+CREATE INDEX idx_txn_gtw ON transaction_log(gtw_txn_id);
+CREATE INDEX idx_gateway_logs_time ON gateway_logs(log_timestamp);
+CREATE INDEX idx_recon_time ON reconciliation(created_at);

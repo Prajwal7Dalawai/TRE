@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Transaction</title>
+    <style>
+        body { font-family: Arial; background: #f4f6f8; }
+
+        .container {
+            width: 420px;
+            margin: 40px auto;
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        h2 { text-align: center; }
+
+        label {
+            font-weight: bold;
+            margin-top: 12px;
+            display: block;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+        }
+
+        button {
+            margin-top: 20px;
+            width: 100%;
+            padding: 10px;
+            background: #007BFF;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        .suggestions {
+            border: 1px solid #ccc;
+            background: white;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .suggestions div {
+            padding: 6px;
+            cursor: pointer;
+        }
+
+        .suggestions div:hover {
+            background: #eee;
+        }
+
+        .alert {
+        padding: 10px;
+        margin-bottom: 15px;
+        border-radius: 5px;
+        font-weight: bold;
+    }
+
+    .alert.success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .alert.error {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+
+    .alert.warning {
+        background-color: #fff3cd;
+        color: #856404;
+    }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>New Transaction</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert {{ category }}">
+            {{ message }}
+        </div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <form method="POST">
+
+        <!-- Sender -->
+        <label>Sender Account</label>
+        <input type="text" id="sender_input" placeholder="Type account number">
+        <input type="hidden" name="sender_acc" id="sender_id">
+        <div id="sender_suggestions" class="suggestions"></div>
+
+        <!-- Receiver -->
+        <label>Receiver Account</label>
+        <input type="text" id="receiver_input" placeholder="Type account number">
+        <input type="hidden" name="receiver_acc" id="receiver_id">
+        <div id="receiver_suggestions" class="suggestions"></div>
+
+        <!-- Amount -->
+        <label>Amount</label>
+        <input type="number" name="amount" required>
+
+        <!-- Transaction Type -->
+        <label>Transaction Type</label>
+        <select name="txn_type" required>
+            <option value="">-- Select --</option>
+            <option value="UPI">UPI</option>
+            <option value="NET_BANKING">Net Banking</option>
+            <option value="BANK_TRANSFER">Bank Transfer</option>
+        </select>
+
+        <!-- 🔥 Demo Status -->
+        <label>Transaction Outcome (Demo)</label>
+        <select name="demo_status" required>
+            <option value="">-- Select --</option>
+            <option value="SUCCESS">Successful</option>
+            <option value="PENDING">Processing / Pending</option>
+            <option value="FAILED">Failed (Mismatch Demo)</option>
+        </select>
+
+        <button type="submit">Process Transaction</button>
+
+    </form>
+</div>
+
+<script>
+async function fetchAccounts(query, box, displayInput, hiddenInput) {
+    if (query.length < 1) {
+        box.innerHTML = "";
+        return;
+    }
+
+    const res = await fetch(`/search_account?q=${query}`);
+    const data = await res.json();
+
+    box.innerHTML = "";
+
+    data.forEach(acc => {
+        const div = document.createElement("div");
+        div.innerText = acc.acc_no + " - " + acc.name;
+
+        div.onclick = () => {
+            displayInput.value = acc.acc_no;
+            hiddenInput.value = acc.account_id;
+            box.innerHTML = "";
+        };
+
+        box.appendChild(div);
+    });
+}
+
+// sender
+const sInput = document.getElementById("sender_input");
+const sBox = document.getElementById("sender_suggestions");
+const sHidden = document.getElementById("sender_id");
+
+sInput.addEventListener("input", () => {
+    fetchAccounts(sInput.value, sBox, sInput, sHidden);
+});
+
+// receiver
+const rInput = document.getElementById("receiver_input");
+const rBox = document.getElementById("receiver_suggestions");
+const rHidden = document.getElementById("receiver_id");
+
+rInput.addEventListener("input", () => {
+    fetchAccounts(rInput.value, rBox, rInput, rHidden);
+});
+</script>
+
+</body>
+</html>
