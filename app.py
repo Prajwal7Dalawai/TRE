@@ -1,11 +1,12 @@
-import csv
-from io import StringIO
+from io import StringIO, BytesIO
 import uuid
 import os
 import subprocess
 from datetime import datetime
-from flask import Flask, request, redirect, render_template, flash, Response, jsonify
-from config.db_config import get_connection
+from flask import Flask, request, render_template, flash, Response, jsonify
+from config.db_config import get_connection 
+import csv
+import zipfile
 
 app = Flask(__name__)
 app.secret_key = "your_secret_key"
@@ -157,9 +158,6 @@ def search_account():
         cursor.close()
         conn.close()
 
-from flask import Response
-from io import StringIO, BytesIO
-import csv, zipfile
 
 @app.route('/export_csv', methods=['POST'])
 def export_csv():

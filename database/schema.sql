@@ -50,7 +50,7 @@ CREATE TABLE gateway_txn (
 
     amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
 
-    status ENUM('INITIATED', 'PENDING', 'SUCCESS', 'FAILED') NOT NULL,
+    status ENUM('INITIATED', 'PENDING', 'SUCCESS', 'FAILED','ROLLEDBACK') NOT NULL,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -70,7 +70,7 @@ CREATE TABLE transaction_log (
 
     amount DECIMAL(15,2) NOT NULL CHECK (amount > 0),
 
-    status ENUM('SUCCESS', 'FAILED') NOT NULL,
+    status ENUM('SUCCESS', 'FAILED','PENDING') NOT NULL,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -85,7 +85,7 @@ CREATE TABLE gateway_logs (
     gateway_id INT,
 
     amount DECIMAL(15,2),
-    status VARCHAR(20),
+    status ENUM('SUCCESS','FAILED','PENDING') not NULL,
 
     log_timestamp TIMESTAMP,
 
