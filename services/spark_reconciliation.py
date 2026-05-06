@@ -27,7 +27,7 @@ try:
             url="jdbc:mysql://localhost:3306/tre",
             dbtable="(SELECT * FROM gateway_logs WHERE processed_flag = FALSE) as t",
             user="root",
-            password="password",
+            password="9110855749",
             driver="com.mysql.cj.jdbc.Driver"
         ).load()
 
@@ -35,7 +35,7 @@ try:
             url="jdbc:mysql://localhost:3306/tre",
             dbtable="transaction_log",
             user="root",
-            password="password",
+            password="9110855749",
             driver="com.mysql.cj.jdbc.Driver"
         ).load()
 
@@ -66,7 +66,7 @@ try:
         raise Exception("Invalid MODE")
 
     # out of order detection
-    order_window = Window.orderBy("log_timestamp")
+    order_window = Window.partitionBy("gateway_id").orderBy("log_timestamp")
 
     gateway_df = gateway_df.withColumn(
         "prev_time",
@@ -124,7 +124,24 @@ try:
 
     for row in rows:
 
+        # skip if already reconciled
+        cursor.execute("""
+            SELECT recon_id FROM reconciliation
+            WHERE gtw_txn_id = %s
+        """, (row['gtw_txn_id'],))
+
+        if cursor.fetchone():
+            continue
+
         action = "NONE"
+
+        # derive internal ledger status
+        if row['debit'] is None:
+            internal_status = "MISSING"
+        elif row['debit'] == row['credit']:
+            internal_status = "SUCCESS"
+        else:
+            internal_status = "FAILED"
 
         # 🔥 Handle large txn audit
         if row['result'] == "LARGE_TRANSACTION":
@@ -139,7 +156,7 @@ try:
                 'High value transaction flagged'
             ))
 
-        # 🔥 Handle rollback
+        # 🔥 Handle rollback only for true mismatches
         if row['result'] in ("MISMATCH", "AMOUNT_MISMATCH", "MISSING_INTERNAL"):
             action = "ROLLBACK"
 
@@ -172,23 +189,23 @@ try:
                 WHERE gtw_txn_id = %s
             """, (row['gtw_txn_id'],))
 
-        # 🔥 Insert reconciliation (FIXED)
+        # 🔥 Insert reconciliation properly
         cursor.execute("""
             INSERT INTO reconciliation
             (gtw_txn_id, gateway_status, internal_status,
-             gateway_amount, internal_amount, result, action_taken)
+            gateway_amount, internal_amount, result, action_taken)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             row['gtw_txn_id'],
             row['status'],
-            row['result'],
+            internal_status,
             row['amount'],
             row['internal_amount'],
             row['result'],
             action
         ))
 
-        # 🔥 Mark processed (only DB mode)
+        # 🔥 mark processed
         if MODE == "DB":
             cursor.execute("""
                 UPDATE gateway_logs
