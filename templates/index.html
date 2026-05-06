@@ -89,21 +89,24 @@
         </div>
 
         <!-- 🔹 Export Gateway Logs -->
-        <div class="card">
-            <h3>Export Gateway Logs</h3>
-            <p>Download logs as CSV</p>
+       <!-- 🔹 Export Gateway Logs -->
+<div class="card">
+    <h3>Export Logs (ZIP)</h3>
+    <p>Download gateway & transaction logs as ZIP</p>
 
-            <form method="POST" action="/export_csv" class="csv-form">
-                <label>Start Date & Time</label>
-                <input type="datetime-local" name="start" required>
+    <form method="POST" action="/export_csv" class="csv-form">
+        <label>Start Date & Time</label>
+        <input type="datetime-local" name="start" required>
 
-                <label>End Date & Time</label>
-                <input type="datetime-local" name="end" required>
+        <label>End Date & Time</label>
+        <input type="datetime-local" name="end" required>
 
-                <button type="submit">Download CSV</button>
-            </form>
-        </div>
-
+        <button type="submit">Download ZIP</button>
+        <small style="color:#777;">
+    Contains: gateway_logs.csv & transaction_logs.csv
+</small>
+    </form>
+</div>
         <!-- 🔹 Run Reconciliation -->
         <div class="card">
             <a href="/reconcile">

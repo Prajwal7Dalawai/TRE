@@ -157,7 +157,11 @@ def search_account():
         cursor.close()
         conn.close()
 
-@app.route('/export_csv', methods=['GET', 'POST'])
+from flask import Response
+from io import StringIO, BytesIO
+import csv, zipfile
+
+@app.route('/export_csv', methods=['POST'])
 def export_csv():
     start = request.form['start'].replace('T', ' ') + ":00"
     end = request.form['end'].replace('T', ' ') + ":00"
@@ -166,35 +170,66 @@ def export_csv():
     cursor = conn.cursor(dictionary=True)
 
     try:
+        # 🔹 Gateway logs
         cursor.execute("""
             SELECT gtw_txn_id, gateway_id, amount, status, log_timestamp
             FROM gateway_logs
             WHERE log_timestamp BETWEEN %s AND %s
-            ORDER BY log_timestamp
         """, (start, end))
+        gateway_rows = cursor.fetchall()
 
-        rows = cursor.fetchall()
+        # 🔹 Transaction logs
+        cursor.execute("""
+            SELECT gtw_txn_id, account_id, entry_type, amount, status, created_at
+            FROM transaction_log
+            WHERE created_at BETWEEN %s AND %s
+        """, (start, end))
+        txn_rows = cursor.fetchall()
 
-        output = StringIO()
-        writer = csv.writer(output)
+        # 🔥 Create ZIP in memory
+        zip_buffer = BytesIO()
 
-        writer.writerow(["Transaction ID", "Gateway ID", "Amount", "Status", "Timestamp"])
+        with zipfile.ZipFile(zip_buffer, 'w') as zf:
 
-        for row in rows:
-            writer.writerow([
-                row["gtw_txn_id"],
-                row["gateway_id"],
-                row["amount"],
-                row["status"],
-                row["log_timestamp"]
-            ])
+            # Gateway CSV
+            g_output = StringIO()
+            g_writer = csv.writer(g_output)
+            g_writer.writerow(["Transaction ID", "Gateway ID", "Amount", "Status", "Timestamp"])
 
-        output.seek(0)
+            for r in gateway_rows:
+                g_writer.writerow([
+                    r["gtw_txn_id"],
+                    r["gateway_id"],
+                    r["amount"],
+                    r["status"],
+                    r["log_timestamp"]
+                ])
+
+            zf.writestr("gateway_logs.csv", g_output.getvalue())
+
+            # Transaction CSV
+            t_output = StringIO()
+            t_writer = csv.writer(t_output)
+            t_writer.writerow(["Transaction ID", "Account ID", "Type", "Amount", "Status", "Timestamp"])
+
+            for r in txn_rows:
+                t_writer.writerow([
+                    r["gtw_txn_id"],
+                    r["account_id"],
+                    r["entry_type"],
+                    r["amount"],
+                    r["status"],
+                    r["created_at"]
+                ])
+
+            zf.writestr("transaction_logs.csv", t_output.getvalue())
+
+        zip_buffer.seek(0)
 
         return Response(
-            output,
-            mimetype="text/csv",
-            headers={"Content-Disposition": "attachment; filename=gateway_logs.csv"}
+            zip_buffer,
+            mimetype='application/zip',
+            headers={"Content-Disposition": "attachment; filename=reconciliation_data.zip"}
         )
 
     finally:
@@ -245,6 +280,8 @@ def reconcile():
                 if not gateway_file or not txn_file:
                     return jsonify({"error": "Upload both CSV files"}), 400
 
+                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
                 gateway_path = os.path.join(UPLOAD_FOLDER, gateway_file.filename)
                 txn_path = os.path.join(UPLOAD_FOLDER, txn_file.filename)
 
@@ -261,8 +298,7 @@ def reconcile():
                     str(job_id)
                 ])
 
-            else:
-                return jsonify({"error": "Invalid input type"}), 400
+                return jsonify({"job_id": job_id}), 200
 
             # 🔥 Step 4: RETURN JSON (IMPORTANT)
             return jsonify({"job_id": job_id})

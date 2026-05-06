@@ -42,7 +42,22 @@ try:
             raise Exception("CSV paths not provided")
 
         gateway_df = spark.read.csv(CSV_GATEWAY_PATH, header=True, inferSchema=True)
+        gateway_df = gateway_df.selectExpr(
+            "`Transaction ID` as gtw_txn_id",
+            "`Gateway ID` as gateway_id",
+            "`Amount` as amount",
+            "`Status` as status",
+            "`Timestamp` as log_timestamp"
+        )
         txn_df = spark.read.csv(CSV_TXN_PATH, header=True, inferSchema=True)
+        txn_df = txn_df.selectExpr(
+            "`Transaction ID` as gtw_txn_id",
+            "`Account ID` as account_id",
+            "`Type` as entry_type",
+            "`Amount` as amount",
+            "`Status` as status",
+            "`Timestamp` as created_at"
+        )
 
     else:
         raise Exception("Invalid MODE")

@@ -149,22 +149,26 @@ async function startProcess(event) {
 
     try {
         const response = await fetch("/reconcile", {
-            method: "POST",
-            body: formData
-        });
+        method: "POST",
+        body: formData
+    });
 
-        const data = await response.json();
+    if (!response.ok) {
+        const err = await response.text();
+        document.getElementById("loader").innerHTML = "❌ " + err;
+        return;
+    }
 
-        jobId = data.job_id;
+    const data = await response.json();
 
-        if (!jobId) {
-            document.getElementById("loader").innerHTML = "❌ Failed to start job";
-            return;
-        }
+    if (!data.job_id) {
+        document.getElementById("loader").innerHTML =
+            "❌ Failed: " + (data.error || "Unknown error");
+        return;
+    }
 
-        // 🔥 Start polling
-        checkStatus();
-
+    jobId = data.job_id;
+    checkStatus();
     } catch (err) {
         document.getElementById("loader").innerHTML = "❌ Error starting job";
     }
