@@ -132,3 +132,28 @@ CREATE TABLE reconciliation_jobs (
 CREATE INDEX idx_txn_gtw ON transaction_log(gtw_txn_id);
 CREATE INDEX idx_gateway_logs_time ON gateway_logs(log_timestamp);
 CREATE INDEX idx_recon_time ON reconciliation(created_at);
+
+-- the sprint2 changes 
+ALTER TABLE reconciliation
+MODIFY result ENUM(
+    'MATCH',
+    'MISMATCH',
+    'MISSING_INTERNAL',
+    'MISSING_GATEWAY',
+    'AMOUNT_MISMATCH',
+    'OUT_OF_ORDER',
+    'LARGE_TRANSACTION'
+);
+
+CREATE TABLE IF NOT EXISTS large_transaction_audit (
+    audit_id INT PRIMARY KEY AUTO_INCREMENT,
+    gtw_txn_id VARCHAR(50),
+    amount DECIMAL(15,2),
+    threshold_limit DECIMAL(15,2),
+    remark VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- ALTER TABLE gateway_logs
+-- ADD COLUMN processed_flag BOOLEAN DEFAULT FALSE;

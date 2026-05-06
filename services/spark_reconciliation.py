@@ -1,8 +1,11 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, when, current_timestamp
+from pyspark.sql.functions import col, sum, when, current_timestamp, lag
+from pyspark.sql.window import Window
 from config.db_config import get_connection
 import sys
-
+import os
+os.environ["HADOOP_HOME"] = "E:\\hadoop"
+os.environ["hadoop.home.dir"] = "E:\\hadoop"
 # 🔥 Args from Flask
 MODE = sys.argv[1] if len(sys.argv) > 1 else "DB"
 CSV_GATEWAY_PATH = sys.argv[2] if len(sys.argv) > 2 else None
@@ -13,8 +16,8 @@ try:
     # 🔥 Start Spark
     spark = SparkSession.builder \
         .appName("ReconciliationEngine") \
-        .config("spark.jars", "file:///D:/mysql-connector-j-8.0.33/mysql-connector-j-8.0.33.jar") \
-        .config("spark.local.dir", "D:/spark-temp") \
+        .config("spark.jars", "file:///E:/mysql-connector-j-8.0.33/mysql-connector-j-8.0.33.jar") \
+        .config("spark.local.dir", "E:/spark-temp") \
         .getOrCreate()
 
     # 🔥 Load Data
@@ -62,6 +65,29 @@ try:
     else:
         raise Exception("Invalid MODE")
 
+    # out of order detection
+    order_window = Window.orderBy("log_timestamp")
+
+    gateway_df = gateway_df.withColumn(
+        "prev_time",
+        lag("log_timestamp").over(order_window)
+    )
+
+    gateway_df = gateway_df.withColumn(
+        "out_of_order_flag",
+        when(
+            col("prev_time").isNotNull() & (col("log_timestamp") < col("prev_time")),
+            True
+        ).otherwise(False)
+    )
+
+    # 🔥 Large txn flag 
+    LARGE_TXN_THRESHOLD = 10000
+
+    gateway_df = gateway_df.withColumn(
+        "large_txn_flag",
+        when(col("amount") >= LARGE_TXN_THRESHOLD, True).otherwise(False)
+    )
     # 🔥 Aggregate ledger
     ledger_df = txn_df.groupBy("gtw_txn_id").agg(
         sum(when(col("entry_type") == "DEBIT", col("amount")).otherwise(0)).alias("debit"),
@@ -80,7 +106,9 @@ try:
     # 🔥 Classification
     recon_df = recon_df.withColumn(
         "result",
-        when(col("debit").isNull(), "MISSING_INTERNAL")
+        when(col("out_of_order_flag") == True, "OUT_OF_ORDER")
+        .when(col("large_txn_flag") == True, "LARGE_TRANSACTION")
+        .when(col("debit").isNull(), "MISSING_INTERNAL")
         .when((col("debit") == col("amount")) & (col("credit") == col("amount")), "MATCH")
         .when(col("debit") != col("credit"), "MISMATCH")
         .otherwise("AMOUNT_MISMATCH")
@@ -98,8 +126,21 @@ try:
 
         action = "NONE"
 
+        # 🔥 Handle large txn audit
+        if row['result'] == "LARGE_TRANSACTION":
+            cursor.execute("""
+                INSERT INTO large_transaction_audit
+                (gtw_txn_id, amount, threshold_limit, remark)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                row['gtw_txn_id'],
+                row['amount'],
+                10000,
+                'High value transaction flagged'
+            ))
+
         # 🔥 Handle rollback
-        if row['result'] != "MATCH":
+        if row['result'] in ("MISMATCH", "AMOUNT_MISMATCH", "MISSING_INTERNAL"):
             action = "ROLLBACK"
 
             cursor.execute("""

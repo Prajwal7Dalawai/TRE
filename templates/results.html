@@ -136,6 +136,15 @@
             color: #007BFF;
             font-weight: bold;
         }
+        .outoforder {
+            background: #ffe5b4;
+            color: #8a5300;
+        }
+
+        .large {
+            background: #f5c6cb;
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
@@ -146,7 +155,9 @@
     <!-- 🔥 Filters -->
     <div class="filters">
         <a href="/results?filter=all">All</a> |
-        <a href="/results?filter=recent">Most Recent</a>
+        <a href="/results?filter=recent">Most Recent</a> |
+        <a href="/results?filter=out_of_order">Out Of Order</a> |
+        <a href="/results?filter=large">Large Transactions</a>
     </div>
 
     <!-- 🔥 Summary -->
@@ -185,6 +196,8 @@
                     <span class="badge 
                         {% if row.result == 'MATCH' %}match
                         {% elif row.result == 'MISMATCH' or row.result == 'AMOUNT_MISMATCH' %}mismatch
+                        {% elif row.result == 'OUT_OF_ORDER' %}outoforder
+                        {% elif row.result == 'LARGE_TRANSACTION' %}large
                         {% else %}missing
                         {% endif %}
                     ">

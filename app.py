@@ -29,6 +29,9 @@ def transaction():
         txn_type = request.form['txn_type']
         demo_status = request.form['demo_status']
 
+        # for large txn initializing threshold.
+        LARGE_TXN_THRESHOLD = 10000
+        is_large_txn = amount >= LARGE_TXN_THRESHOLD
         try:
             # Check sender
             cursor.execute("SELECT * FROM accounts WHERE account_id=%s", (sender,))
@@ -329,10 +332,14 @@ def results():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # 🔥 Base query
+    # out of order, large txn, recent first (default: latest first)
     base_query = "SELECT * FROM reconciliation"
 
-    # 🔥 Filter logic
+    if filter_type == "out_of_order":
+        base_query += " WHERE result='OUT_OF_ORDER'"
+    elif filter_type == "large":
+        base_query += " WHERE result='LARGE_TRANSACTION'"
+
     if filter_type == "recent":
         base_query += " ORDER BY created_at DESC"
     else:
