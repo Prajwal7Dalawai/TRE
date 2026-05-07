@@ -1,8 +1,11 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, when, current_timestamp
+from pyspark.sql.functions import col, sum, when, current_timestamp, lag
+from pyspark.sql.window import Window
 from config.db_config import get_connection
 import sys
-
+import os
+os.environ["HADOOP_HOME"] = "E:\\hadoop"
+os.environ["hadoop.home.dir"] = "E:\\hadoop"
 # 🔥 Args from Flask
 MODE = sys.argv[1] if len(sys.argv) > 1 else "DB"
 CSV_GATEWAY_PATH = sys.argv[2] if len(sys.argv) > 2 else None
@@ -13,8 +16,8 @@ try:
     # 🔥 Start Spark
     spark = SparkSession.builder \
         .appName("ReconciliationEngine") \
-        .config("spark.jars", "file:///D:/mysql-connector-j-8.0.33/mysql-connector-j-8.0.33.jar") \
-        .config("spark.local.dir", "D:/spark-temp") \
+        .config("spark.jars", "file:///E:/mysql-connector-j-8.0.33/mysql-connector-j-8.0.33.jar") \
+        .config("spark.local.dir", "E:/spark-temp") \
         .getOrCreate()
 
     # 🔥 Load Data
@@ -24,7 +27,7 @@ try:
             url="jdbc:mysql://localhost:3306/tre",
             dbtable="(SELECT * FROM gateway_logs WHERE processed_flag = FALSE) as t",
             user="root",
-            password="password",
+            password="9110855749",
             driver="com.mysql.cj.jdbc.Driver"
         ).load()
 
@@ -32,7 +35,7 @@ try:
             url="jdbc:mysql://localhost:3306/tre",
             dbtable="transaction_log",
             user="root",
-            password="password",
+            password="9110855749",
             driver="com.mysql.cj.jdbc.Driver"
         ).load()
 
@@ -62,6 +65,29 @@ try:
     else:
         raise Exception("Invalid MODE")
 
+    # out of order detection
+    order_window = Window.partitionBy("gateway_id").orderBy("log_timestamp")
+
+    gateway_df = gateway_df.withColumn(
+        "prev_time",
+        lag("log_timestamp").over(order_window)
+    )
+
+    gateway_df = gateway_df.withColumn(
+        "out_of_order_flag",
+        when(
+            col("prev_time").isNotNull() & (col("log_timestamp") < col("prev_time")),
+            True
+        ).otherwise(False)
+    )
+
+    # 🔥 Large txn flag 
+    LARGE_TXN_THRESHOLD = 10000
+
+    gateway_df = gateway_df.withColumn(
+        "large_txn_flag",
+        when(col("amount") >= LARGE_TXN_THRESHOLD, True).otherwise(False)
+    )
     # 🔥 Aggregate ledger
     ledger_df = txn_df.groupBy("gtw_txn_id").agg(
         sum(when(col("entry_type") == "DEBIT", col("amount")).otherwise(0)).alias("debit"),
@@ -80,7 +106,9 @@ try:
     # 🔥 Classification
     recon_df = recon_df.withColumn(
         "result",
-        when(col("debit").isNull(), "MISSING_INTERNAL")
+        when(col("out_of_order_flag") == True, "OUT_OF_ORDER")
+        .when(col("large_txn_flag") == True, "LARGE_TRANSACTION")
+        .when(col("debit").isNull(), "MISSING_INTERNAL")
         .when((col("debit") == col("amount")) & (col("credit") == col("amount")), "MATCH")
         .when(col("debit") != col("credit"), "MISMATCH")
         .otherwise("AMOUNT_MISMATCH")
@@ -96,10 +124,40 @@ try:
 
     for row in rows:
 
+        # skip if already reconciled
+        cursor.execute("""
+            SELECT recon_id FROM reconciliation
+            WHERE gtw_txn_id = %s
+        """, (row['gtw_txn_id'],))
+
+        if cursor.fetchone():
+            continue
+
         action = "NONE"
 
-        # 🔥 Handle rollback
-        if row['result'] != "MATCH":
+        # derive internal ledger status
+        if row['debit'] is None:
+            internal_status = "MISSING"
+        elif row['debit'] == row['credit']:
+            internal_status = "SUCCESS"
+        else:
+            internal_status = "FAILED"
+
+        # 🔥 Handle large txn audit
+        if row['result'] == "LARGE_TRANSACTION":
+            cursor.execute("""
+                INSERT INTO large_transaction_audit
+                (gtw_txn_id, amount, threshold_limit, remark)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                row['gtw_txn_id'],
+                row['amount'],
+                10000,
+                'High value transaction flagged'
+            ))
+
+        # 🔥 Handle rollback only for true mismatches
+        if row['result'] in ("MISMATCH", "AMOUNT_MISMATCH", "MISSING_INTERNAL"):
             action = "ROLLBACK"
 
             cursor.execute("""
@@ -131,23 +189,23 @@ try:
                 WHERE gtw_txn_id = %s
             """, (row['gtw_txn_id'],))
 
-        # 🔥 Insert reconciliation (FIXED)
+        # 🔥 Insert reconciliation properly
         cursor.execute("""
             INSERT INTO reconciliation
             (gtw_txn_id, gateway_status, internal_status,
-             gateway_amount, internal_amount, result, action_taken)
+            gateway_amount, internal_amount, result, action_taken)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             row['gtw_txn_id'],
             row['status'],
-            row['result'],
+            internal_status,
             row['amount'],
             row['internal_amount'],
             row['result'],
             action
         ))
 
-        # 🔥 Mark processed (only DB mode)
+        # 🔥 mark processed
         if MODE == "DB":
             cursor.execute("""
                 UPDATE gateway_logs

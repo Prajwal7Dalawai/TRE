@@ -132,3 +132,45 @@ CREATE TABLE reconciliation_jobs (
 CREATE INDEX idx_txn_gtw ON transaction_log(gtw_txn_id);
 CREATE INDEX idx_gateway_logs_time ON gateway_logs(log_timestamp);
 CREATE INDEX idx_recon_time ON reconciliation(created_at);
+
+
+-- sprint2 changes
+
+ALTER TABLE reconciliation
+MODIFY result ENUM(
+    'MATCH',
+    'MISMATCH',
+    'MISSING_INTERNAL',
+    'MISSING_GATEWAY',
+    'AMOUNT_MISMATCH',
+    'OUT_OF_ORDER',
+    'LARGE_TRANSACTION'
+);
+
+CREATE TABLE IF NOT EXISTS large_transaction_audit (
+    audit_id INT PRIMARY KEY AUTO_INCREMENT,
+    gtw_txn_id VARCHAR(50),
+    amount DECIMAL(15,2),
+    threshold_limit DECIMAL(15,2),
+    remark VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE gateway_logs
+ADD COLUMN processed_flag BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE reconciliation_jobs
+MODIFY status ENUM('RUNNING', 'SUCCESS', 'FAILED') NOT NULL;
+
+ALTER TABLE gateway_txn
+MODIFY status ENUM('INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'ROLLEDBACK') NOT NULL;
+
+ALTER TABLE transaction_log
+MODIFY status ENUM('SUCCESS', 'FAILED','PENDING') NOT NULL;
+
+ALTER TABLE gateway_logs
+MODIFY status ENUM('SUCCESS','FAILED','PENDING') NOT NULL;
+
+ALTER TABLE reconciliation
+MODIFY gateway_status VARCHAR(100),
+MODIFY internal_status VARCHAR(100);
