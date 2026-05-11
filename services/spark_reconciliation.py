@@ -1,41 +1,68 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, when, current_timestamp, lag
+from pyspark.sql.functions import (
+    col,
+    sum,
+    when,
+    current_timestamp,
+    row_number
+)
 from pyspark.sql.window import Window
 from config.db_config import get_connection
 import sys
-import os
-os.environ["HADOOP_HOME"] = "E:\\hadoop"
-os.environ["hadoop.home.dir"] = "E:\\hadoop"
-# 🔥 Args from Flask
+# ARGS FROM FLASK
 MODE = sys.argv[1] if len(sys.argv) > 1 else "DB"
 CSV_GATEWAY_PATH = sys.argv[2] if len(sys.argv) > 2 else None
 CSV_TXN_PATH = sys.argv[3] if len(sys.argv) > 3 else None
 JOB_ID = int(sys.argv[4]) if len(sys.argv) > 4 else None
 
 try:
-    # 🔥 Start Spark
+
+    # START SPARK
     spark = SparkSession.builder \
         .appName("ReconciliationEngine") \
-        .config("spark.jars", "file:///E:/mysql-connector-j-8.0.33/mysql-connector-j-8.0.33.jar") \
-        .config("spark.local.dir", "E:/spark-temp") \
+        .config(
+            "spark.jars",
+            "file:///D:/mysql-connector-j-8.0.33/mysql-connector-j-8.0.33.jar"
+        ) \
+        .config("spark.local.dir", "D:/spark-temp") \
         .getOrCreate()
 
-    # 🔥 Load Data
+    # LOAD DATA
     if MODE == "DB":
 
         gateway_df = spark.read.format("jdbc").options(
-            url="jdbc:mysql://localhost:3306/tre",
-            dbtable="(SELECT * FROM gateway_logs WHERE processed_flag = FALSE) as t",
-            user="root",
-            password="9110855749",
-            driver="com.mysql.cj.jdbc.Driver"
+        url="jdbc:mysql://localhost:3306/tre",
+        dbtable="""
+        (
+            SELECT
+                gl.log_id,
+                gl.gtw_txn_id,
+                gl.gateway_id,
+                gl.amount,
+                gl.status,
+                gl.log_timestamp,
+                gl.processed_flag,
+                gt.created_at,
+                gt.sender_account_id,
+                acc.balance AS sender_balance
+            FROM gateway_logs gl
+            JOIN gateway_txn gt
+                ON gl.gtw_txn_id = gt.gtw_txn_id
+            JOIN accounts acc
+                ON gt.sender_account_id = acc.account_id
+            WHERE gl.processed_flag = FALSE
+        ) as t
+        """,
+        user="root",
+        password="password",
+        driver="com.mysql.cj.jdbc.Driver"
         ).load()
 
         txn_df = spark.read.format("jdbc").options(
             url="jdbc:mysql://localhost:3306/tre",
             dbtable="transaction_log",
             user="root",
-            password="9110855749",
+            password="password",
             driver="com.mysql.cj.jdbc.Driver"
         ).load()
 
@@ -44,7 +71,12 @@ try:
         if not CSV_GATEWAY_PATH or not CSV_TXN_PATH:
             raise Exception("CSV paths not provided")
 
-        gateway_df = spark.read.csv(CSV_GATEWAY_PATH, header=True, inferSchema=True)
+        gateway_df = spark.read.csv(
+            CSV_GATEWAY_PATH,
+            header=True,
+            inferSchema=True
+        )
+
         gateway_df = gateway_df.selectExpr(
             "`Transaction ID` as gtw_txn_id",
             "`Gateway ID` as gateway_id",
@@ -52,7 +84,13 @@ try:
             "`Status` as status",
             "`Timestamp` as log_timestamp"
         )
-        txn_df = spark.read.csv(CSV_TXN_PATH, header=True, inferSchema=True)
+
+        txn_df = spark.read.csv(
+            CSV_TXN_PATH,
+            header=True,
+            inferSchema=True
+        )
+
         txn_df = txn_df.selectExpr(
             "`Transaction ID` as gtw_txn_id",
             "`Account ID` as account_id",
@@ -62,89 +100,155 @@ try:
             "`Timestamp` as created_at"
         )
 
+        # For CSV mode
+        gateway_df = gateway_df.withColumn(
+            "created_at",
+            col("log_timestamp")
+        )
+
     else:
         raise Exception("Invalid MODE")
 
-    # out of order detection
-    order_window = Window.partitionBy("gateway_id").orderBy("log_timestamp")
+    # OUT OF ORDER DETECTION
+    expected_window = Window.orderBy("created_at")
 
     gateway_df = gateway_df.withColumn(
-        "prev_time",
-        lag("log_timestamp").over(order_window)
+        "expected_seq",
+        row_number().over(expected_window)
+    )
+
+    actual_window = Window.orderBy("log_timestamp")
+
+    gateway_df = gateway_df.withColumn(
+        "actual_seq",
+        row_number().over(actual_window)
     )
 
     gateway_df = gateway_df.withColumn(
         "out_of_order_flag",
         when(
-            col("prev_time").isNotNull() & (col("log_timestamp") < col("prev_time")),
+            col("expected_seq") != col("actual_seq"),
             True
         ).otherwise(False)
     )
 
-    # 🔥 Large txn flag 
-    LARGE_TXN_THRESHOLD = 10000
-
+    # LARGE TXN DETECTION
+    LARGE_TXN_THRESHOLD = 20000
     gateway_df = gateway_df.withColumn(
         "large_txn_flag",
-        when(col("amount") >= LARGE_TXN_THRESHOLD, True).otherwise(False)
+
+        when(
+            (col("amount") >= LARGE_TXN_THRESHOLD) &
+            (col("amount") >= (col("sender_balance") * 0.8)),
+            True
+        ).otherwise(False)
     )
-    # 🔥 Aggregate ledger
+
+
+    # AGGREGATE LEDGER
     ledger_df = txn_df.groupBy("gtw_txn_id").agg(
-        sum(when(col("entry_type") == "DEBIT", col("amount")).otherwise(0)).alias("debit"),
-        sum(when(col("entry_type") == "CREDIT", col("amount")).otherwise(0)).alias("credit")
+        sum(
+            when(
+                col("entry_type") == "DEBIT",
+                col("amount")
+            ).otherwise(0)
+        ).alias("debit"),
+
+        sum(
+            when(
+                col("entry_type") == "CREDIT",
+                col("amount")
+            ).otherwise(0)
+        ).alias("credit")
     )
 
-    # 🔥 Join
-    recon_df = gateway_df.join(ledger_df, on="gtw_txn_id", how="left")
+    # JOIN
+    recon_df = gateway_df.join(
+        ledger_df,
+        on="gtw_txn_id",
+        how="left"
+    )
 
-    # 🔥 Internal amount = credit (or debit — consistent)
+    # INTERNAL AMOUNT
     recon_df = recon_df.withColumn(
         "internal_amount",
-        when(col("credit").isNull(), 0).otherwise(col("credit"))
+        when(
+            col("credit").isNull(),
+            0
+        ).otherwise(col("credit"))
     )
 
-    # 🔥 Classification
+    # CLASSIFICATION
     recon_df = recon_df.withColumn(
         "result",
-        when(col("out_of_order_flag") == True, "OUT_OF_ORDER")
-        .when(col("large_txn_flag") == True, "LARGE_TRANSACTION")
-        .when(col("debit").isNull(), "MISSING_INTERNAL")
-        .when((col("debit") == col("amount")) & (col("credit") == col("amount")), "MATCH")
-        .when(col("debit") != col("credit"), "MISMATCH")
+
+        when(
+            col("out_of_order_flag") == True,
+            "OUT_OF_ORDER"
+        )
+
+        .when(
+            col("large_txn_flag") == True,
+            "LARGE_TRANSACTION"
+        )
+
+        .when(
+            col("debit").isNull(),
+            "MISSING_INTERNAL"
+        )
+
+        .when(
+            (col("debit") == col("amount")) &
+            (col("credit") == col("amount")),
+            "MATCH"
+        )
+
+        .when(
+            col("debit") != col("credit"),
+            "MISMATCH"
+        )
+
         .otherwise("AMOUNT_MISMATCH")
     )
 
-    recon_df = recon_df.withColumn("processed_at", current_timestamp())
+    recon_df = recon_df.withColumn(
+        "processed_at",
+        current_timestamp()
+    )
 
-    # 🔥 Collect
+    # COLLECT
     rows = recon_df.collect()
 
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+
+    cursor = conn.cursor(dictionary=True, buffered=True)
 
     for row in rows:
 
-        # skip if already reconciled
+
         cursor.execute("""
-            SELECT recon_id FROM reconciliation
+            SELECT recon_id
+            FROM reconciliation
             WHERE gtw_txn_id = %s
         """, (row['gtw_txn_id'],))
 
-        if cursor.fetchone():
+        existing = cursor.fetchone()
+
+        if existing:
             continue
 
         action = "NONE"
-
-        # derive internal ledger status
         if row['debit'] is None:
             internal_status = "MISSING"
+
         elif row['debit'] == row['credit']:
             internal_status = "SUCCESS"
+
         else:
             internal_status = "FAILED"
 
-        # 🔥 Handle large txn audit
         if row['result'] == "LARGE_TRANSACTION":
+
             cursor.execute("""
                 INSERT INTO large_transaction_audit
                 (gtw_txn_id, amount, threshold_limit, remark)
@@ -152,12 +256,17 @@ try:
             """, (
                 row['gtw_txn_id'],
                 row['amount'],
-                10000,
+                25000,
                 'High value transaction flagged'
             ))
 
-        # 🔥 Handle rollback only for true mismatches
-        if row['result'] in ("MISMATCH", "AMOUNT_MISMATCH", "MISSING_INTERNAL"):
+
+        if row['result'] in (
+            "MISMATCH",
+            "AMOUNT_MISMATCH",
+            "MISSING_INTERNAL"
+        ):
+
             action = "ROLLBACK"
 
             cursor.execute("""
@@ -169,19 +278,28 @@ try:
             entries = cursor.fetchall()
 
             for entry in entries:
+
                 if entry['entry_type'] == "DEBIT":
+
                     cursor.execute("""
                         UPDATE accounts
                         SET balance = balance + %s
                         WHERE account_id = %s
-                    """, (entry['amount'], entry['account_id']))
+                    """, (
+                        entry['amount'],
+                        entry['account_id']
+                    ))
 
                 elif entry['entry_type'] == "CREDIT":
+
                     cursor.execute("""
                         UPDATE accounts
                         SET balance = balance - %s
                         WHERE account_id = %s
-                    """, (entry['amount'], entry['account_id']))
+                    """, (
+                        entry['amount'],
+                        entry['account_id']
+                    ))
 
             cursor.execute("""
                 UPDATE gateway_txn
@@ -189,11 +307,17 @@ try:
                 WHERE gtw_txn_id = %s
             """, (row['gtw_txn_id'],))
 
-        # 🔥 Insert reconciliation properly
         cursor.execute("""
             INSERT INTO reconciliation
-            (gtw_txn_id, gateway_status, internal_status,
-            gateway_amount, internal_amount, result, action_taken)
+            (
+                gtw_txn_id,
+                gateway_status,
+                internal_status,
+                gateway_amount,
+                internal_amount,
+                result,
+                action_taken
+            )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             row['gtw_txn_id'],
@@ -205,8 +329,9 @@ try:
             action
         ))
 
-        # 🔥 mark processed
+
         if MODE == "DB":
+
             cursor.execute("""
                 UPDATE gateway_logs
                 SET processed_flag = TRUE
@@ -215,13 +340,17 @@ try:
 
     conn.commit()
 
-    # 🔥 Update job status SUCCESS
+
     if JOB_ID:
+
         cursor.execute("""
             UPDATE reconciliation_jobs
-            SET status='SUCCESS', completed_at=NOW()
+            SET
+                status='SUCCESS',
+                completed_at=NOW()
             WHERE job_id=%s
         """, (JOB_ID,))
+
         conn.commit()
 
     cursor.close()
@@ -235,11 +364,16 @@ except Exception as e:
     cursor = conn.cursor()
 
     if JOB_ID:
+
         cursor.execute("""
             UPDATE reconciliation_jobs
-            SET status='FAILED', message=%s, completed_at=NOW()
+            SET
+                status='FAILED',
+                message=%s,
+                completed_at=NOW()
             WHERE job_id=%s
         """, (str(e), JOB_ID))
+
         conn.commit()
 
     cursor.close()

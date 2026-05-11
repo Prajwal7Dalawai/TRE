@@ -3,10 +3,8 @@ import random
 import uuid
 from datetime import datetime, timedelta
 
-# -----------------------------------
-# MYSQL CONNECTION
-# -----------------------------------
 
+# MYSQL CONNECTION
 conn = mysql.connector.connect(
     host="localhost",
     user="root",
@@ -16,19 +14,13 @@ conn = mysql.connector.connect(
 
 cursor = conn.cursor()
 
-# -----------------------------------
 # FETCH ACCOUNTS
-# -----------------------------------
-
 cursor.execute("SELECT account_id FROM accounts")
 accounts = [row[0] for row in cursor.fetchall()]
 
 print(f"Fetched {len(accounts)} accounts")
 
-# -----------------------------------
 # CONFIG
-# -----------------------------------
-
 NUM_TRANSACTIONS = 5000
 
 statuses = ['SUCCESS', 'FAILED', 'PENDING']
@@ -39,10 +31,7 @@ gateway_txn_data = []
 gateway_logs_data = []
 transaction_logs_data = []
 
-# -----------------------------------
 # GENERATE DATA
-# -----------------------------------
-
 for i in range(NUM_TRANSACTIONS):
 
     sender = random.choice(accounts)
@@ -69,10 +58,7 @@ for i in range(NUM_TRANSACTIONS):
         seconds=random.randint(1, 200000)
     )
 
-    # -----------------------------------
     # gateway_txn
-    # -----------------------------------
-
     gateway_txn_data.append(
         (
             txn_id,
@@ -87,10 +73,7 @@ for i in range(NUM_TRANSACTIONS):
         )
     )
 
-    # -----------------------------------
     # gateway_logs
-    # -----------------------------------
-
     gateway_logs_data.append(
         (
             txn_id,
@@ -102,10 +85,8 @@ for i in range(NUM_TRANSACTIONS):
         )
     )
 
-    # -----------------------------------
     # transaction_log
     # ONLY SUCCESS
-    # -----------------------------------
 
     if status == "SUCCESS":
 
@@ -133,9 +114,8 @@ for i in range(NUM_TRANSACTIONS):
             )
         )
 
-# -----------------------------------
+
 # INSERT gateway_txn
-# -----------------------------------
 
 cursor.executemany("""
 INSERT INTO gateway_txn
@@ -153,9 +133,7 @@ INSERT INTO gateway_txn
 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
 """, gateway_txn_data)
 
-# -----------------------------------
 # INSERT gateway_logs
-# -----------------------------------
 
 cursor.executemany("""
 INSERT INTO gateway_logs
@@ -170,9 +148,7 @@ INSERT INTO gateway_logs
 VALUES (%s,%s,%s,%s,%s,%s)
 """, gateway_logs_data)
 
-# -----------------------------------
 # INSERT transaction_log
-# -----------------------------------
 
 cursor.executemany("""
 INSERT INTO transaction_log
@@ -193,9 +169,8 @@ print(f"Inserted {NUM_TRANSACTIONS} gateway transactions")
 print(f"Inserted {len(gateway_logs_data)} gateway logs")
 print(f"Inserted {len(transaction_logs_data)} transaction logs")
 
-# -----------------------------------
+
 # CLOSE
-# -----------------------------------
 
 cursor.close()
 conn.close()

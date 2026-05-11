@@ -171,7 +171,7 @@ def export_csv():
     cursor = conn.cursor(dictionary=True)
 
     try:
-        # 🔹 Gateway logs
+        # Gateway logs
         cursor.execute("""
             SELECT gtw_txn_id, gateway_id, amount, status, log_timestamp
             FROM gateway_logs
@@ -179,7 +179,7 @@ def export_csv():
         """, (start, end))
         gateway_rows = cursor.fetchall()
 
-        # 🔹 Transaction logs
+        # Transaction logs
         cursor.execute("""
             SELECT gtw_txn_id, account_id, entry_type, amount, status, created_at
             FROM transaction_log
@@ -187,7 +187,7 @@ def export_csv():
         """, (start, end))
         txn_rows = cursor.fetchall()
 
-        # 🔥 Create ZIP in memory
+        # Create ZIP in memory
         zip_buffer = BytesIO()
 
         with zipfile.ZipFile(zip_buffer, 'w') as zf:
@@ -245,7 +245,7 @@ def reconcile():
         input_type = request.form.get('input_type')
 
         try:
-            # 🔥 Step 1: Create job
+            # Step 1: Create job
             conn = get_connection()
             cursor = conn.cursor()
 
@@ -260,7 +260,7 @@ def reconcile():
             cursor.close()
             conn.close()
 
-            # 🔥 Step 2: DB MODE
+            # Step 2: DB MODE
             if input_type == "db":
 
                 subprocess.Popen([
@@ -272,7 +272,7 @@ def reconcile():
                     str(job_id)
                 ])
 
-            # 🔥 Step 3: CSV MODE
+            # Step 3: CSV MODE
             elif input_type == "csv":
 
                 gateway_file = request.files.get("gateway_file")
@@ -301,7 +301,7 @@ def reconcile():
 
                 return jsonify({"job_id": job_id}), 200
 
-            # 🔥 Step 4: RETURN JSON (IMPORTANT)
+            # Step 4: RETURN JSON (IMPORTANT)
             return jsonify({"job_id": job_id})
 
         except Exception as e:
@@ -345,20 +345,20 @@ def results():
     else:
         base_query += " ORDER BY recon_id DESC"
 
-    # 🔥 Pagination
+    # Pagination
     base_query += " LIMIT %s OFFSET %s"
 
     cursor.execute(base_query, (per_page, offset))
     data = cursor.fetchall()
 
-    # 🔥 Total count for pagination
+    # Total count for pagination
     cursor.execute("SELECT COUNT(*) as count FROM reconciliation")
     total = cursor.fetchone()['count']
 
     cursor.close()
     conn.close()
 
-    # 🔥 Add time_ago
+    # Add time_ago
     for row in data:
         diff = datetime.now() - row['created_at']
         diff_seconds = diff.total_seconds()

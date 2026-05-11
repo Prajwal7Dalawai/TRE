@@ -156,21 +156,7 @@ CREATE TABLE IF NOT EXISTS large_transaction_audit (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE gateway_logs
-ADD COLUMN processed_flag BOOLEAN DEFAULT FALSE;
-
-ALTER TABLE reconciliation_jobs
-MODIFY status ENUM('RUNNING', 'SUCCESS', 'FAILED') NOT NULL;
-
-ALTER TABLE gateway_txn
-MODIFY status ENUM('INITIATED', 'PENDING', 'SUCCESS', 'FAILED', 'ROLLEDBACK') NOT NULL;
-
-ALTER TABLE transaction_log
-MODIFY status ENUM('SUCCESS', 'FAILED','PENDING') NOT NULL;
-
-ALTER TABLE gateway_logs
-MODIFY status ENUM('SUCCESS','FAILED','PENDING') NOT NULL;
 
 ALTER TABLE reconciliation
 MODIFY gateway_status VARCHAR(100),
-MODIFY internal_status VARCHAR(100);
+MODIFY internal_status VARCHAR(100); 

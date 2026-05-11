@@ -1,0 +1,4 @@
+gateway_id,name,type
+1,PhonePe,UPI
+2,SBI Netbanking,NET_BANKING
+3,SBI,BANK_TRANSFER
